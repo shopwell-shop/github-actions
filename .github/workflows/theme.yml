@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Build Theme
-        uses: shopwell-shop/github-actions/build-zip@main
+        uses: shopwell-shop/github-actions/build-zip@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         with:
@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: runs-on/action@4e5f72399b6b17f2e79c511c1b38a315a64d22dc # v2.2.0
       - name: Setup and Install Theme
-        uses: shopwell-shop/github-actions/setup-extension@main
+        uses: shopwell-shop/github-actions/setup-extension@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
         with:
           mysqlVersion: 'skip'
           install: 'true'

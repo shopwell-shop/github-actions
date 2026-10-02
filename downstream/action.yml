@@ -80,7 +80,7 @@ runs:
       run: |
         git config "http.https://github.com/".extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${{ inputs.token || steps.sts.outputs.token }}" | base64 -w0)"
 
-    - uses: shopwell-shop/github-actions/shopwell-version@main
+    - uses: shopwell-shop/github-actions/shopwell-version@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
       env:
         GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
       with:

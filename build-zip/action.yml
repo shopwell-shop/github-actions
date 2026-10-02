@@ -1,0 +1,60 @@
+name: "Build Extension Zip"
+description: "Builds the extension and uploads a zip of it"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  path:
+    description: "Path to your bundle"
+    required: false
+    default: "."
+  skipCheckout:
+    description: "Skip the checkout step"
+    required: false
+    default: 'false'
+  disableGit:
+    description: "Use the source folder as it is"
+    required: false
+    default: "false"
+
+outputs:
+  artifact-id:
+    description: A unique identifier for the artifact that was just uploaded
+    value: ${{ steps.upload.outputs.artifact-id }}
+  artifact-url:
+    description: A download URL for the artifact that was just uploaded
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Clone
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      if: inputs.skipCheckout == 'false'
+      with:
+          # fetch all git entries for changelog generation
+          fetch-depth: 0
+    - name: Install shopwell-cli
+      uses: shopwell-shop/shopwell-cli-action@v3
+    - name: Build
+      shell: bash
+      run: shopwell-cli extension zip "${{ inputs.path }}" ${{ (inputs.disableGit == 'false' && format('--git-commit {0}', github.sha)) || '--disable-git' }} --release
+    - name: Rename
+      shell: bash
+      run: mv ${{ inputs.extensionName }}-${{ github.sha }}.zip ${{ inputs.extensionName }}.zip
+    - name: Validate
+      shell: bash
+      run: shopwell-cli extension validate ${{ inputs.extensionName }}.zip --only sw-cli
+    - name: Upload artifact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      id: upload
+      with:
+        path: ${{ inputs.extensionName }}.zip
+        # The extension is already a zip, so upload it directly without an
+        # additional artifact archive around it.
+        archive: false

@@ -1,0 +1,363 @@
+name: "Setup extension"
+description: "Checkout shopwell and extension. Optionally, install dependencies and setup db"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  extensionRef:
+    description: "The branch/tag to checkout"
+    required: false
+  shopwellVersion:
+    description: |
+      With the default `.auto`, the workflow tries to find a shopwell version using the shopwell-version action.
+
+      For example, if the current ref is next-1234, it will try to find the ref next-1234 in shopwell-shop/shopwell. If there's no matching ref, it will use shopwellVersionFallback
+    required: false
+    default: ".auto"
+  shopwellVersionFallback:
+    description: Fallback version in case there's no matching branch
+    required: false
+    default: trunk
+  shopwell-repository:
+    description: The shopwell repository to checkout
+    required: true
+    default: shopwell-shop/shopwell
+  shopwell-github-token:
+    description: Token used for checking out the shopwell repository
+    required: true
+    default: ${{ github.token }}
+  phpVersion:
+    description: PHP version to use
+    required: false
+    default: "8.2"
+  mysqlVersion:
+    description: Mysql image to use or buildin to use the builtin mysql
+    required: false
+    default: "builtin"
+  node-version:
+    description: nodejs version to use
+    required: false
+    default: "20.x"
+  npm-version:
+    description: npm version to use
+    required: false
+    default: ""
+  composerRootVersion:
+    description: "The COMPOSER_ROOT_VERSION that should be set"
+    required: false
+    default: ".auto"
+
+  dependencies:
+    description: JSON list defining dependencies
+    required: false
+
+  extraRepositories:
+    description: |
+      Additional composer repositories
+      Example:
+        {
+          "customRepo": {
+            "type": "vcs",
+            "url": "https://my-custom-repo.example.test/foo/bar.git"
+          }
+        }
+    default: "{}"
+
+  install:
+    description: Whether to install Shopwell or not
+    required: false
+    default: ""
+
+  install-admin:
+    description: Whether to install administration npm dependencies
+    required: false
+    default: ""
+
+  install-storefront:
+    description: Whether to install storefront npm dependencies
+    required: false
+    default: ""
+
+  skip-js-build:
+    description: Whether to skip the js build step. Default is controller by install-admin and install-storefront
+    required: false
+    default: "false"
+
+  env:
+    description: Environment for Shopwell
+    required: false
+    default: "test"
+
+  keep-composer-tools:
+    description: "Keep Shopwell Composer tools (PHPStan, ECS, BC-Checker)"
+    required: false
+    default: "false"
+
+  extension-zip:
+    description: "Artifact (extension zip archive) to download; Setting this will prevent a checkout of the extension and download the referenced archive instead"
+    required: false
+
+  pre-decompress-extension-zip:
+    description: "Pre decompress the Extension ZIP (e.g. double zipping)"
+    required: false
+    default: "false"
+
+  with-submodules:
+    description: "Checkout including all submodules"
+    required: false
+    default: "false"
+
+  allow-insecure-versions:
+    description: This allows installing older versions of shopwell with known vulnerabilities (e.g. for testing updates)
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: shopwell-shop/github-actions/shopwell-version@main
+      with:
+        fallback: ${{ inputs.shopwellVersionFallback }}
+        repo: ${{ inputs.shopwell-repository }}
+        github-token: ${{ inputs.shopwell-github-token }}
+      id: version
+      if: ${{ inputs.shopwellVersion == '.auto' || inputs.shopwellVersion == '' }}
+
+    - name: Setup Shopwell
+      uses: shopwell-shop/setup-shopwell@main
+      with:
+        shopwell-version: ${{ steps.version.outputs.shopwell-version || inputs.shopwellVersion }}
+        shopwell-repository: ${{ inputs.shopwell-repository  || 'shopwell-shop/shopwell' }}
+        shopwell-github-token: ${{ inputs.shopwell-github-token }}
+        php-version: ${{ inputs.phpVersion }}
+        mysql-version: ${{ inputs.mysqlVersion }}
+        node-version: ${{ inputs.node-version }}
+        npm-version: ${{ inputs.npm-version }}
+        composer-root-version: ${{ inputs.composerRootVersion }}
+        install: ${{ inputs.install }}
+        install-admin: ${{ inputs.install-admin }}
+        install-storefront: ${{ inputs.install-storefront }}
+        skip-js-build: ${{ inputs.skip-js-build }}
+        keep-composer-tools: ${{ inputs.keep-composer-tools }}
+        allow-insecure-versions: ${{ inputs.allow-insecure-versions }}
+        env: ${{ inputs.env }}
+
+    - name: Clone Extension
+      if: ${{ ! inputs.extension-zip }}
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      with:
+        persist-credentials: false
+        ref: ${{ inputs.extensionRef || github.ref }}
+        path: custom/plugins/${{ inputs.extensionName }}
+        submodules: ${{ inputs.with-submodules == 'false' && false || 'recursive'  }}
+
+    - name: Download extension zip
+      if: ${{ inputs.extension-zip }}
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: ${{ inputs.extension-zip }}
+        path: custom/plugins/${{ inputs.extensionName }}
+        skip-decompress: ${{ inputs.pre-decompress-extension-zip != 'true' }}
+
+    - name: Extract extension zip if needed
+      if: ${{ inputs.extension-zip }}
+      shell: bash
+      run: |
+        unzip -o "custom/plugins/${{ inputs.extensionName }}/*.zip" "${{ inputs.extensionName }}/*" -d "custom/plugins/"
+        rm -f "custom/plugins/${{ inputs.extensionName }}/*.zip"
+
+    - name: Determine whether we are dealing with a plugin or an app
+      shell: bash
+      env:
+        IS_PLUGIN: ${{ hashFiles(format('custom/plugins/{0}/composer.json', inputs.extensionName)) != '' }}
+        IS_APP: ${{ hashFiles(format('custom/plugins/{0}/manifest.xml', inputs.extensionName)) != '' }}
+      run: |-
+        echo "IS_PLUGIN=${IS_PLUGIN}" >> $GITHUB_ENV
+        echo "IS_APP=${IS_APP}" >> $GITHUB_ENV
+
+        if [ "${IS_PLUGIN}" == "false" ] && [ "${IS_APP}" == "false" ]; then
+          ls -lah custom/plugins/${{ inputs.extensionName }}
+          echo "Neither a plugin nor an app found at custom/plugins/${{ inputs.extensionName }}. Exiting."
+          exit 1
+        fi
+
+    - name: Move if the extension is an app
+      if: ${{ env.IS_APP == 'true' }}
+      shell: bash
+      run: |
+        mkdir -p custom/apps
+        mv custom/plugins/${{ inputs.extensionName }} custom/apps/${{ inputs.extensionName }}
+
+    - name: Make composer config adjustments
+      if: ${{ env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: |
+        composer config prefer-stable true
+        composer config minimum-stability dev
+
+        AUTOLOAD_DEV="$(jq '."autoload-dev"."psr-4" // {} | to_entries | map({"key": .key, "value": "custom/plugins/${{ inputs.extensionName }}/\(.value)"}) | from_entries' < custom/plugins/${{ inputs.extensionName }}/composer.json)"
+        jq -s '
+          .[0] as $doc | .[1] as $extra | .[2] as $auto |
+          $doc | .repositories = (
+            if ($extra == null or $extra == {} or $extra == []) then
+              .repositories
+            elif (.repositories == null) then
+              $extra
+            elif (.repositories | type) == "array" then
+              .repositories + (if ($extra | type) == "array" then $extra else ($extra | to_entries | map(.value)) end)
+            elif (.repositories | type) == "object" and ($extra | type) == "object" then
+              .repositories * $extra
+            else
+              (.repositories | to_entries | map(.value)) + (if ($extra | type) == "array" then $extra else ($extra | to_entries | map(.value)) end)
+            end
+          )
+          | if .repositories == null then del(.repositories) else . end
+          | . * {"autoload-dev": {"psr-4": $auto}}
+        ' composer.json <(echo '${{ inputs.extraRepositories }}') <(echo "$AUTOLOAD_DEV") > composer.json.new
+        mv composer.json.new composer.json
+
+    - name: Clone Dependencies
+      shell: bash
+      if: inputs.dependencies
+      env:
+        DEPS: ${{ inputs.dependencies }}
+        REF: ${{ inputs.shopwellVersion }}
+        HEAD_REF: ${{ github.head_ref }}
+        # if base ref is not set we run in downstream and use the current ref as fallback
+        BASE_REF: ${{ github.base_ref || github.ref }}
+        FALLBACK: ${{ inputs.shopwellVersionFallback }}
+      run: |
+        for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+          dep_name=$(echo "$dep" | jq -r '.name')
+          dep_repo=$(echo "$dep" | jq -r '.repo')
+          dep_branch=$(echo "$dep" | jq -r '.branch // empty')
+          dep_token=$(echo "$dep" | jq -r '.token // empty')
+          if [ -n "${dep_token}" ]; then
+            # if a custom token is provided use this token to clone
+            git config --global "http.${dep_repo}/.extraheader" "AUTHORIZATION: basic $(echo -n "x-access-token:${dep_token}" | base64 -w0)"
+            export GH_TOKEN="${dep_token}"
+          fi
+
+          for attempt in 1 2 3; do
+            git_flags=()
+            if [ "${attempt}" -gt 1 ]; then
+              # 'Failed sending HTTP request' (curl error 55) is a typical symptom of an
+              # HTTP/2 stream reset while the request body is being sent. Retry attempts
+              # force HTTP/1.1 and log the transfer verbosely (auth headers are redacted
+              # by git) so we can pin down where the connection breaks.
+              git_flags+=(-c http.version=HTTP/1.1)
+              export GIT_CURL_VERBOSE=1
+            fi
+            # Partial clone (lazy blobs): full ref list for the .auto branch checkout below,
+            # but skips historic blobs, which drastically reduces transfer size for large repos
+            if git "${git_flags[@]}" clone --filter=blob:none "$dep_repo" "custom/plugins/$dep_name"; then
+              unset GIT_CURL_VERBOSE
+              break
+            fi
+            rm -rf "custom/plugins/$dep_name"
+            if [ "${attempt}" -eq 3 ]; then
+              echo "::error::cloning ${dep_name} failed after ${attempt} attempts"
+              exit 1
+            fi
+            echo "::warning::cloning ${dep_name} failed (attempt ${attempt}/3); retrying in $((attempt * 5))s"
+            sleep "$((attempt * 5))"
+          done
+          unset GIT_CURL_VERBOSE
+
+          if [ -n "${dep_branch}" ]; then
+            if [ "${dep_branch}" = ".auto" ]; then
+              echo "" >"$GITHUB_OUTPUT"
+              REPO="$(echo "${dep_repo}")" "${GITHUB_ACTION_PATH}/../shopwell-version/shopwell-version.bash"
+              dep_branch=$(cat "$GITHUB_OUTPUT" | grep "^shopwell-version=" | cut -d'=' -f2)
+            fi
+            if [ "${dep_branch}" != "trunk" ]; then
+              git -C custom/plugins/${dep_name} checkout ${dep_branch}
+            fi
+          fi
+          unset GH_TOKEN
+        done
+
+    - name: Install dependencies with Composer
+      if: ${{ inputs.dependencies && env.IS_PLUGIN == 'true' }}
+      env:
+        DEPS: ${{ inputs.dependencies }}
+      shell: bash
+      run: |
+        IFS=$'\n'
+        for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+          dep_name=$(echo "$dep" | jq -r '.name')
+          composer require $(composer -d "custom/plugins/$dep_name" config name)
+        done
+
+    - name: Install extension with Composer
+      if: ${{ env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: composer require $(composer -d custom/plugins/${{ inputs.extensionName }} config name) --with-dependencies
+
+    - name: Refresh Plugins
+      if: ${{ inputs.install == 'true' && env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: php bin/console plugin:refresh
+
+    - name: Install extension dependencies
+      if: ${{ inputs.install == 'true' && inputs.dependencies && env.IS_PLUGIN == 'true' }}
+      shell: bash
+      env:
+        DEPS: ${{ inputs.dependencies }}
+      run: |
+        IFS=$'\n'
+        for dep in $(echo "$DEPS" | envsubst | jq -c '.[]'); do
+          dep_name=$(echo "$dep" | jq -r '.name')
+          bin/console plugin:install --activate $dep_name
+        done
+
+    - name: Install Plugin
+      if: ${{ inputs.install == 'true' && env.IS_PLUGIN == 'true' }}
+      shell: bash
+      run: php bin/console plugin:install --activate ${{ inputs.extensionName }}
+
+    # TODO: install deps for all bundles (bin/ci bundle:dump -> foreach bundle in var/plugins.json)
+    - name: Install extension admin deps
+      if: ${{ inputs.install-admin == 'true' }}
+      shell: bash
+      run: |
+        if [[ -r "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration/package.json" ]]; then
+          (cd "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration/" && npm ci --no-audit --no-fund --prefer-offline)
+        fi
+
+    - name: Install app
+      if: ${{ inputs.install == 'true' && env.IS_APP == 'true' }}
+      shell: bash
+      run: |-
+        bin/console app:refresh -n -a ${{ inputs.extensionName }}
+
+    - name: Install storefront deps
+      if: ${{ inputs.install-storefront == 'true' }}
+      shell: bash
+      working-directory: src/Storefront/Resources/app/storefront
+      run: npm ci --no-audit --no-fund --prefer-offline
+
+    # TODO: install deps for all bundles
+    - name: Install extension storefront deps
+      if: ${{ inputs.install-storefront == 'true' }}
+      shell: bash
+      run: |
+        if [[ -r "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/storefront/package.json" ]]; then
+          (cd "custom/plugins/${{ inputs.extensionName }}/src/Resources/app/storefront/" && npm ci --no-audit --no-fund --prefer-offline)
+        fi
+
+    - name: Prepare Jest environment
+      if: ${{ inputs.install == 'true' && inputs.install-admin == 'true' }}
+      shell: bash
+      working-directory: src/Administration/Resources/app/administration
+      run: npm run unit-setup --if-present
+
+    - name: Entity schema
+      if: ${{ inputs.install == 'true' && inputs.install-admin == 'true' }}
+      shell: bash
+      run: composer admin:generate-entity-schema-types

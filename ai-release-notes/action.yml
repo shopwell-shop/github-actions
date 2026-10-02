@@ -1,0 +1,418 @@
+name: "AI Release Notes"
+description: "Generate AI-powered release notes from GitHub's auto-generated changelog and create a draft GitHub release"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "file-text"
+
+inputs:
+  product-name:
+    description: "Product name used in the AI prompt (e.g. 'Nexus Workflow Builder')"
+    required: true
+  product-description:
+    description: "Optional product context for better AI output"
+    required: false
+    default: ""
+  bold-features:
+    description: "Use bold formatting for feature names in bullets"
+    required: false
+    default: "true"
+  include-pr-links:
+    description: "Include PR links in the release notes bullets"
+    required: false
+    default: "false"
+  include-authors:
+    description: "Include author attributions in the release notes bullets"
+    required: false
+    default: "false"
+  sections:
+    description: "Comma-separated list of sections in desired order"
+    required: false
+    default: "New Features,Improvements,Bug Fixes,Other"
+  collapse-types:
+    description: "Change types to collapse under the last section (comma-separated)"
+    required: false
+    default: "dependency,translation,CI"
+  additional-rules:
+    description: "Extra rules appended to the default system prompt"
+    required: false
+    default: ""
+  custom-prompt:
+    description: "Completely override the default system prompt (ignores all formatting inputs)"
+    required: false
+    default: ""
+  provider:
+    description: "AI provider: 'openai' (OpenAI-compatible endpoint authenticated with api-key) or 'bedrock' (Claude on Amazon Bedrock, authenticated with the ambient AWS credentials — run aws-actions/configure-aws-credentials before this action)"
+    required: false
+    default: "openai"
+  api-endpoint:
+    description: "OpenAI-compatible chat completions endpoint URL (provider: openai only)"
+    required: false
+    default: "https://api.openai.com/v1/chat/completions"
+  api-key:
+    description: "API key for the AI provider (provider: openai only). When empty, the AI rewrite is skipped and the raw GitHub changelog is used as release notes."
+    required: false
+    default: ""
+  model:
+    description: "Model name understood by the configured provider. Defaults per provider: 'gpt-4o' for openai, 'eu.anthropic.claude-sonnet-5' (cross-region inference profile) for bedrock."
+    required: false
+    default: ""
+  temperature:
+    description: "AI model temperature (0.0 = deterministic, 1.0 = creative). Only sent on the openai path — Claude Sonnet 5 and Opus 5 reject sampling parameters."
+    required: false
+    default: "0.4"
+  max-output-tokens:
+    description: "Output token budget for the bedrock path. Claude's adaptive thinking draws from the same budget, so keep it generous."
+    required: false
+    default: "8192"
+  tag-pattern:
+    description: "Regex pattern to match tags when detecting the previous release (e.g. '^v', '^release-')"
+    required: false
+    default: "^v"
+  release-name:
+    description: "Release name template — use {tag} as placeholder for the tag name"
+    required: false
+    default: "Release {tag}"
+  draft:
+    description: "Create the release as a draft"
+    required: false
+    default: "true"
+  prerelease:
+    description: "Mark the release as a prerelease"
+    required: false
+    default: "false"
+  create-release:
+    description: "Whether to create a GitHub release (set to false to only generate notes)"
+    required: false
+    default: "true"
+  github-token:
+    description: "GitHub token with contents:write permission"
+    required: false
+    default: "${{ github.token }}"
+
+outputs:
+  release-notes:
+    description: "The AI-generated release notes (Markdown) — or the raw changelog when the AI rewrite was skipped"
+    value: "${{ steps.ai-notes.outputs.notes }}"
+  raw-notes:
+    description: "The raw GitHub-generated changelog before AI rewrite"
+    value: "${{ steps.raw-notes.outputs.body }}"
+  release-url:
+    description: "URL of the created GitHub release (empty if create-release is false)"
+    value: "${{ steps.create-release.outputs.url }}"
+  previous-tag:
+    description: "The detected previous git tag"
+    value: "${{ steps.prev-tag.outputs.prev_tag }}"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine previous tag
+      id: prev-tag
+      shell: bash
+      env:
+        TAG_PATTERN: "${{ inputs.tag-pattern }}"
+      run: |
+        CURRENT_TAG="${GITHUB_REF_NAME}"
+        PREV_TAG=$(git tag --sort=-v:refname | grep -E "${TAG_PATTERN}" | grep -v "^${CURRENT_TAG}$" | head -n 1)
+
+        if [[ -z "$PREV_TAG" ]]; then
+          echo "No previous tag found — this is the first release."
+          echo "prev_tag=" >> "$GITHUB_OUTPUT"
+        else
+          echo "prev_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+        fi
+
+        echo "Current tag: $CURRENT_TAG"
+        echo "Previous tag: ${PREV_TAG:-none}"
+
+    - name: Generate raw release notes via GitHub API
+      id: raw-notes
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        INPUT_PREV_TAG: "${{ steps.prev-tag.outputs.prev_tag }}"
+      with:
+        github-token: "${{ inputs.github-token }}"
+        script: |
+          const currentTag = process.env.GITHUB_REF_NAME;
+          const prevTag = process.env.INPUT_PREV_TAG;
+
+          const params = {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            tag_name: currentTag,
+          };
+
+          if (prevTag) {
+            params.previous_tag_name = prevTag;
+          }
+
+          const { data } = await github.rest.repos.generateReleaseNotes(params);
+
+          core.setOutput('body', data.body);
+          core.setOutput('name', data.name);
+
+    - name: Rewrite release notes with AI
+      id: ai-notes
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        INPUT_PROVIDER: "${{ inputs.provider }}"
+        INPUT_API_ENDPOINT: "${{ inputs.api-endpoint }}"
+        INPUT_API_KEY: "${{ inputs.api-key }}"
+        INPUT_MAX_OUTPUT_TOKENS: "${{ inputs.max-output-tokens }}"
+        RAW_NOTES: "${{ steps.raw-notes.outputs.body }}"
+        INPUT_PRODUCT_NAME: "${{ inputs.product-name }}"
+        INPUT_PRODUCT_DESCRIPTION: "${{ inputs.product-description }}"
+        INPUT_SECTIONS: "${{ inputs.sections }}"
+        INPUT_COLLAPSE_TYPES: "${{ inputs.collapse-types }}"
+        INPUT_BOLD_FEATURES: "${{ inputs.bold-features }}"
+        INPUT_INCLUDE_PR_LINKS: "${{ inputs.include-pr-links }}"
+        INPUT_INCLUDE_AUTHORS: "${{ inputs.include-authors }}"
+        INPUT_ADDITIONAL_RULES: "${{ inputs.additional-rules }}"
+        INPUT_CUSTOM_PROMPT: "${{ inputs.custom-prompt }}"
+        INPUT_MODEL: "${{ inputs.model }}"
+        INPUT_TEMPERATURE: "${{ inputs.temperature }}"
+      with:
+        script: |
+          const currentTag = process.env.GITHUB_REF_NAME;
+          const rawNotes = process.env.RAW_NOTES;
+          const customPrompt = process.env.INPUT_CUSTOM_PROMPT;
+          const provider = process.env.INPUT_PROVIDER;
+          const apiKey = process.env.INPUT_API_KEY;
+
+          if (provider !== 'openai' && provider !== 'bedrock') {
+            core.setFailed(`Unknown provider "${provider}" — expected "openai" or "bedrock".`);
+            return;
+          }
+
+          if (provider === 'openai' && !apiKey) {
+            core.warning('No api-key configured — skipping AI rewrite and using the raw GitHub changelog as release notes.');
+            core.setOutput('notes', rawNotes);
+            return;
+          }
+
+          if (provider === 'bedrock' && !process.env.AWS_ACCESS_KEY_ID) {
+            core.warning('No AWS credentials in the environment — run aws-actions/configure-aws-credentials before this action. Skipping AI rewrite and using the raw GitHub changelog as release notes.');
+            core.setOutput('notes', rawNotes);
+            return;
+          }
+
+          let systemPrompt;
+
+          if (customPrompt) {
+            systemPrompt = customPrompt;
+          } else {
+            const productName = process.env.INPUT_PRODUCT_NAME;
+            const productDesc = process.env.INPUT_PRODUCT_DESCRIPTION;
+            const sections = process.env.INPUT_SECTIONS;
+            const collapseTypes = process.env.INPUT_COLLAPSE_TYPES;
+            const boldFeatures = process.env.INPUT_BOLD_FEATURES === 'true';
+            const includePrLinks = process.env.INPUT_INCLUDE_PR_LINKS === 'true';
+            const includeAuthors = process.env.INPUT_INCLUDE_AUTHORS === 'true';
+            const additionalRules = process.env.INPUT_ADDITIONAL_RULES;
+            const lastSection = sections.split(',').pop().trim();
+
+            const lines = [
+              `You are a release-notes editor for a SaaS product called ${productName}.`,
+            ];
+
+            if (productDesc) {
+              lines.push(`Product context: ${productDesc}`);
+            }
+
+            lines.push(
+              'You receive the auto-generated GitHub "What\'s Changed" list and rewrite it into polished, user-friendly release notes grouped by category.',
+              '',
+              'Rules:',
+              `- Use these sections (omit any that have no items): ${sections}.`,
+              '- Each bullet should be concise but descriptive — translate commit-speak into product language.',
+              `- Collapse ${collapseTypes} changes into a single bullet each under "${lastSection}".`,
+            );
+
+            if (boldFeatures) {
+              lines.push('- Use **bold** for feature names in bullets.');
+            }
+
+            if (!includePrLinks) {
+              lines.push('- Do NOT include PR links or PR numbers in the bullets.');
+            }
+
+            if (!includeAuthors) {
+              lines.push('- Do NOT include author attributions in the bullets.');
+            }
+
+            lines.push(
+              '- Keep the "Full Changelog" comparison link at the bottom exactly as provided.',
+              `- Start with a heading: ## Release Notes — ${currentTag}`,
+              '- Output clean Markdown, nothing else.',
+            );
+
+            if (additionalRules) {
+              lines.push('', 'Additional rules:', additionalRules);
+            }
+
+            systemPrompt = lines.join('\n');
+          }
+
+          const userPrompt = `Rewrite these auto-generated release notes:\n\n${rawNotes}`;
+          const model = process.env.INPUT_MODEL
+            || (provider === 'bedrock' ? 'eu.anthropic.claude-sonnet-5' : 'gpt-4o');
+
+          let aiNotes;
+          try {
+            aiNotes = provider === 'bedrock'
+              ? await requestBedrock({ model, systemPrompt, userPrompt })
+              : await requestOpenAi({ model, systemPrompt, userPrompt });
+          } catch (error) {
+            core.warning(`${error.message} — falling back to the raw GitHub changelog.`);
+            core.setOutput('notes', rawNotes);
+            return;
+          }
+
+          core.setOutput('notes', aiNotes);
+
+          async function requestOpenAi({ model, systemPrompt, userPrompt }) {
+            const response = await fetch(process.env.INPUT_API_ENDPOINT, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                model,
+                temperature: parseFloat(process.env.INPUT_TEMPERATURE),
+                messages: [
+                  { role: 'system', content: systemPrompt },
+                  { role: 'user', content: userPrompt },
+                ],
+              }),
+            });
+
+            if (!response.ok) {
+              const errorBody = await response.text();
+              throw new Error(`AI API error (${response.status}): ${errorBody}`);
+            }
+
+            const result = await response.json();
+
+            if (!result.choices?.length) {
+              throw new Error(`Unexpected AI API response: ${JSON.stringify(result)}`);
+            }
+
+            return result.choices[0].message.content;
+          }
+
+          // Claude on Amazon Bedrock via the `aws` CLI preinstalled on GitHub-hosted
+          // runners — the CLI does the SigV4 signing that would otherwise require an
+          // SDK dependency. Credentials are the short-lived STS credentials that
+          // aws-actions/configure-aws-credentials derives from the workflow's OIDC
+          // token; nothing long-lived is stored.
+          async function requestBedrock({ model, systemPrompt, userPrompt }) {
+            const { execFileSync } = require('node:child_process');
+            const fs = require('node:fs');
+            const os = require('node:os');
+            const path = require('node:path');
+
+            // configure-aws-credentials exports AWS_REGION from its `aws-region` input.
+            const awsRegion = process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION;
+            if (!awsRegion) {
+              throw new Error('Missing AWS_REGION — pass `aws-region` to aws-actions/configure-aws-credentials');
+            }
+
+            const body = {
+              // Identifies the request body schema for Bedrock's InvokeModel API;
+              // unrelated to the model version.
+              anthropic_version: 'bedrock-2023-05-31',
+              // Claude's adaptive thinking draws from the same output budget.
+              max_tokens: parseInt(process.env.INPUT_MAX_OUTPUT_TOKENS, 10),
+              // No `temperature`: Claude Sonnet 5 and Opus 5 reject sampling parameters.
+              system: systemPrompt,
+              messages: [{ role: 'user', content: userPrompt }],
+            };
+
+            // The request body goes to the CLI as a file rather than an argument —
+            // release-notes prompts can run to tens of kilobytes.
+            const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-release-notes-'));
+            const requestPath = path.join(scratch, 'request.json');
+            const responsePath = path.join(scratch, 'response.json');
+
+            let message;
+            try {
+              fs.writeFileSync(requestPath, JSON.stringify(body), 'utf8');
+
+              try {
+                execFileSync(
+                  'aws',
+                  [
+                    'bedrock-runtime', 'invoke-model',
+                    '--region', awsRegion,
+                    '--model-id', model,
+                    '--content-type', 'application/json',
+                    '--body', `fileb://${requestPath}`,
+                    '--cli-read-timeout', '300',
+                    '--cli-connect-timeout', '30',
+                    responsePath,
+                  ],
+                  { stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' },
+                );
+              } catch (error) {
+                const stderr = (error.stderr || '').trim();
+                throw new Error(`aws bedrock-runtime invoke-model failed: ${stderr || error.message}`);
+              }
+
+              message = JSON.parse(fs.readFileSync(responsePath, 'utf8'));
+            } finally {
+              fs.rmSync(scratch, { force: true, recursive: true });
+            }
+
+            if (message.stop_reason === 'refusal') {
+              throw new Error(`Claude declined the request (refusal category: ${message.stop_details?.category ?? 'unknown'})`);
+            }
+
+            if (message.stop_reason === 'max_tokens') {
+              throw new Error(`Claude hit the ${body.max_tokens}-token output cap (max-output-tokens) before finishing`);
+            }
+
+            // Thinking blocks precede the text block, so filter by type rather than
+            // indexing content[0].
+            const text = message.content?.find((block) => block.type === 'text')?.text;
+            if (typeof text !== 'string' || text.trim() === '') {
+              throw new Error(`Claude returned no text content (stop_reason: ${message.stop_reason})`);
+            }
+
+            if (message.usage) {
+              core.info(`${model} — input ${message.usage.input_tokens} / output ${message.usage.output_tokens} tokens.`);
+            }
+
+            return text;
+          }
+
+    - name: Create GitHub release
+      id: create-release
+      if: inputs.create-release == 'true'
+      uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      env:
+        AI_NOTES: "${{ steps.ai-notes.outputs.notes }}"
+        INPUT_RELEASE_NAME: "${{ inputs.release-name }}"
+        INPUT_DRAFT: "${{ inputs.draft }}"
+        INPUT_PRERELEASE: "${{ inputs.prerelease }}"
+      with:
+        github-token: "${{ inputs.github-token }}"
+        script: |
+          const tag = process.env.GITHUB_REF_NAME;
+          const releaseName = process.env.INPUT_RELEASE_NAME.replace('{tag}', tag);
+          const isDraft = process.env.INPUT_DRAFT === 'true';
+          const isPrerelease = process.env.INPUT_PRERELEASE === 'true';
+
+          const release = await github.rest.repos.createRelease({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            tag_name: tag,
+            name: releaseName,
+            body: process.env.AI_NOTES,
+            draft: isDraft,
+            prerelease: isPrerelease,
+          });
+
+          core.setOutput('url', release.data.html_url);
+          core.notice(`Release created: ${release.data.html_url}`);

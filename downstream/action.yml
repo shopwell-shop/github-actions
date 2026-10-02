@@ -1,0 +1,126 @@
+name: "Downstream workflow"
+description: "Trigger a downstream workflow in another repository"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  repo:
+    description: "Downstream repo"
+    required: true
+  token-scope:
+    description: "Scope for the sts token"
+    required: false
+  workflow:
+    description: "Workflow filename to dispatch in downstream (including .yml / .yaml suffix)"
+    required: true
+  ref:
+    description: "Downstream ref, automatically detects matching refs with .auto"
+    required: false
+    default: ".auto"
+  refFallback:
+    description: Fallback ref in case there's no matching branch. Only used in .auto mode
+    required: false
+    default: trunk
+  env:
+    description: |
+      Environment variables to pass to the downstream workflow
+
+      Example:
+      ```shell
+      PLATFORM_BRANCH=trunk
+      FOO=bar
+      ```
+    required: false
+    default: ""
+  identity:
+    description: "Identity for octo-sts"
+    required: true
+    default: "upstream"
+  token:
+    description: Token used to authenticate with the downstream repo. If not provided octo-sts is used
+    required: false
+    default: ""
+  upstream-token:
+    description: Token used to cancel the upstream workflow run when the downstream run was cancelled
+    required: false
+    default: ""
+  timeout:
+    description: Timeout for the downstream
+    required: false
+    default: "30m"
+  poll_interval:
+    description: Poll interval for checking the status. By default 2 minutes
+    default: "2m"
+
+outputs:
+  run_id:
+    description: The run id of the downstream workflow
+    value: "${{ steps.trigger.outputs.run_id }}"
+  run_url:
+    description: The api url of the downstream workflow
+    value: "${{ steps.trigger.outputs.run_url }}"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      with:
+        persist-credentials: false
+    - uses: shopwell-shop/octo-sts-action@c0ea7b858a7f5719ff14390f67dd770a2defd203
+      if: ${{ ! inputs.token }}
+      id: sts
+      with:
+        scope: ${{ inputs.token-scope || inputs.repo }}
+        identity: ${{ inputs.identity }}
+
+    - shell: bash
+      run: |
+        git config "http.https://github.com/".extraheader "AUTHORIZATION: basic $(echo -n "x-access-token:${{ inputs.token || steps.sts.outputs.token }}" | base64 -w0)"
+
+    - uses: shopwell-shop/github-actions/shopwell-version@main
+      env:
+        GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
+      with:
+        fallback: ${{ inputs.refFallback }}
+        repo: ${{ inputs.repo }}
+        github-token: ${{ inputs.token || steps.sts.outputs.token }}
+      id: version
+      if: ${{ inputs.ref == '.auto' }}
+
+    - name: Trigger Downstream
+      shell: bash
+      id: trigger
+      env:
+        GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
+        UPSTREAM_DATA: |
+          {
+            "upstream": {
+              "id": "${{ github.run_id }}",
+              "ref": "${{ github.head_ref || github.ref }}",
+              "base_ref": "${{ github.base_ref }}",
+              "repo": "${{ github.repository }}",
+              "github-token": "${{ github.token }}",
+              "url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            },
+            "env": "${{ inputs.env }}"
+          }
+        WORKFLOW: ${{ inputs.workflow }}
+        REPO: ${{ inputs.repo }}
+        REF: ${{ steps.version.outputs.shopwell-version || inputs.ref }}
+      run: |
+        run_url=$(gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$REF" -f upstream_data="$UPSTREAM_DATA")
+        echo "run_url=${run_url}" >> "$GITHUB_OUTPUT"
+        echo "run_id=$(basename "$run_url")" >> "$GITHUB_OUTPUT"
+    - name: Wait for conclusion
+      shell: bash
+      id: wait
+      env:
+        GH_TOKEN: ${{ inputs.token || steps.sts.outputs.token }}
+        REPO: ${{ inputs.repo }}
+        UPSTREAM_TOKEN: ${{ inputs.upstream-token }}
+        UPSTREAM_REPOSITORY: ${{ github.repository }}
+        UPSTREAM_RUN_ID: ${{ github.run_id }}
+      run: timeout "${{ inputs.timeout }}" ${GITHUB_ACTION_PATH}/wait.bash "$REPO" "${{ inputs.poll_interval }}" "${{ steps.trigger.outputs.run_url }}"

@@ -1,0 +1,124 @@
+name: "Release Extension to Store"
+description: "Builds the extension and uploads a zip of it to the Shopwell Store"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  extensionName:
+    description: "Your extension name"
+    required: true
+  publishOnly:
+    description: "Publish only to Shopwell Store and dont create a tag"
+    required: false
+    default: "false"
+  path:
+    description: "Path to your bundle"
+    required: false
+    default: "."
+  accountUser:
+    description: "Your Shopwell account user (deprecated, use clientId/clientSecret instead)"
+    required: false
+  accountPassword:
+    description: "Your Shopwell account password (deprecated, use clientId/clientSecret instead)"
+    required: false
+  clientId:
+    description: "Your Shopwell account client ID for API authentication"
+    required: false
+  clientSecret:
+    description: "Your Shopwell account client secret for API authentication"
+    required: false
+  ghToken:
+    description: "GitHub token"
+    required: true
+  skipCheckout:
+    description: "Skip the checkout step"
+    required: false
+    default: "false"
+  disableGit:
+    description: "Use the source folder as it is"
+    required: false
+    default: "false"
+  updateInfo:
+    description: "Update extension information on the Shopwell Store plugin page"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: shopwell-shop/github-actions/build-zip@main
+      with:
+        extensionName: ${{ inputs.extensionName }}
+        skipCheckout: ${{ inputs.skipCheckout }}
+        disableGit: ${{ inputs.disableGit }}
+
+    - name: Check for deprecated authentication
+      shell: bash
+      if: inputs.accountUser != ''
+      run: echo "::warning::The 'accountUser' and 'accountPassword' inputs are deprecated. Please use 'clientId' and 'clientSecret' instead. Generate credentials at https://account.shopwell.com/producer/development"
+
+    - name: Get version
+      shell: bash
+      run: |
+        echo "EXTENSION_VERSION=$(shopwell-cli extension get-version .)" >> $GITHUB_ENV
+    - name: Check Tag existence
+      uses: mukunku/tag-exists-action@5c39604fe8aef7e65acb6fbcf96ec580f7680313 # v1.7.0
+      id: checkTag
+      with:
+        tag: ${{ env.EXTENSION_VERSION }}
+      env:
+        GITHUB_TOKEN: ${{ inputs.ghToken }}
+    - name: Validate Zip
+      shell: bash
+      run: shopwell-cli extension validate $(pwd)/${{ inputs.extensionName }}.zip --only sw-cli
+    - name: Store Upload
+      shell: bash
+      run: shopwell-cli account producer extension upload $(pwd)/${{ inputs.extensionName }}.zip
+      env:
+        GITHUB_TOKEN: ${{ inputs.ghToken }}
+        SHOPWELL_CLI_ACCOUNT_EMAIL: ${{ inputs.accountUser }}
+        SHOPWELL_CLI_ACCOUNT_PASSWORD: ${{ inputs.accountPassword }}
+        SHOPWELL_CLI_ACCOUNT_CLIENT_ID: ${{ inputs.clientId }}
+        SHOPWELL_CLI_ACCOUNT_CLIENT_SECRET: ${{ inputs.clientSecret }}
+    - name: Update Extension Info
+      shell: bash
+      if: inputs.updateInfo == 'true'
+      run: shopwell-cli account producer extension info push $(pwd)/${{ inputs.extensionName }}.zip
+      env:
+        GITHUB_TOKEN: ${{ inputs.ghToken }}
+        SHOPWELL_CLI_ACCOUNT_EMAIL: ${{ inputs.accountUser }}
+        SHOPWELL_CLI_ACCOUNT_PASSWORD: ${{ inputs.accountPassword }}
+        SHOPWELL_CLI_ACCOUNT_CLIENT_ID: ${{ inputs.clientId }}
+        SHOPWELL_CLI_ACCOUNT_CLIENT_SECRET: ${{ inputs.clientSecret }}
+    - name: Extract Changelog
+      shell: bash
+      if: steps.checkTag.outputs.exists != 'true' && inputs.publishOnly == 'false'
+      run: shopwell-cli extension get-changelog $(pwd)/${{ inputs.extensionName }}.zip > /tmp/changelog.txt
+    - name: Unzip
+      shell: bash
+      if: inputs.publishOnly == 'false'
+      run: |
+        unzip -o -q "${{ inputs.extensionName }}.zip" -d /tmp/toDeploy
+        mv "${{ inputs.extensionName }}.zip" /tmp/
+        rsync -av --exclude '.git' --delete /tmp/toDeploy/${{ inputs.extensionName }}/ .
+        rm -rf ./vendor
+    - name: Commit
+      shell: bash
+      if: steps.checkTag.outputs.exists != 'true' && inputs.publishOnly == 'false'
+      run: |
+        git config user.name "GitHub Actions Bot"
+        git config user.email "<>"
+        git add -f .
+        git commit -m "Build release"
+        git tag ${EXTENSION_VERSION}
+        git push origin ${EXTENSION_VERSION}
+    - name: Create a GitHub release
+      if: steps.checkTag.outputs.exists != 'true' && inputs.publishOnly == 'false'
+      uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
+      with:
+        artifacts: /tmp/${{ inputs.extensionName }}.zip
+        tag: ${{ env.EXTENSION_VERSION }}
+        name: ${{ env.EXTENSION_VERSION }}
+        bodyFile: /tmp/changelog.txt

@@ -1,0 +1,53 @@
+name: shopwell-version
+description: "Action to get the shopwell version that is matching the current branch. Returns a fallback if no matching branch is found."
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  fallback:
+    description: The fallback that is returned if there's no matching branch
+    default: trunk
+    required: false
+  repo:
+    description: The repo where to look for matching refs
+    default: shopwell-shop/shopwell
+    required: false
+  ref:
+    description: The git reference to match (defaults to github.ref)
+    required: false
+    default: ""
+  base-ref:
+    description: The base reference for pull requests (defaults to github.base_ref)
+    required: false
+    default: ""
+  head-ref:
+    description: The head reference for pull requests (defaults to github.head_ref)
+    required: false
+    default: ""
+  github-token:
+    description: GitHub token used to authenticate gh api calls (defaults to github.token)
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  shopwell-version:
+    description: The matching shopwell version or fallback
+    value: ${{ steps.get-version.outputs.shopwell-version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get shopwell version
+      id: get-version
+      shell: bash
+      env:
+        REF: "${{ inputs.ref || github.ref }}"
+        HEAD_REF: "${{ inputs.head-ref || github.head_ref }}"
+        BASE_REF: "${{ inputs.base-ref || github.base_ref }}"
+        REPO: "${{ inputs.repo || 'shopwell-shop/shopwell' }}"
+        CURRENT_REPO: "${{ github.repository }}"
+        FALLBACK: "${{ inputs.fallback || 'trunk' }}"
+        GH_TOKEN: "${{ inputs.github-token }}"
+      run: ${GITHUB_ACTION_PATH}/shopwell-version.bash

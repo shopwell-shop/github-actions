@@ -1,0 +1,47 @@
+name: "Extension Verifier"
+description: "Extension Verifier"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+inputs:
+  version:
+    description: "The Shopwell CLI version to install"
+    required: false
+    default: "latest"
+  action:
+    description: "The action to run (check, format)"
+    required: true
+    default: "check"
+  check-against:
+    description: "The version to check against"
+    required: false
+    default: "highest"
+  exclude:
+    description: "Comma-separated list of tools to exclude from the check (e.g. phpstan,eslint)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Shopwell-CLI
+      uses: shopwell-shop/shopwell-cli-action@v3
+      with:
+        version: ${{ inputs.version }}
+    - name: Run verifier
+      if: inputs.action == 'check'
+      shell: bash
+      env:
+        CHECK_AGAINST: ${{ inputs.check-against }}
+        EXCLUDE: ${{ inputs.exclude }}
+      run: |
+        ARGS=(--full --check-against "${CHECK_AGAINST}")
+        if [[ -n "${EXCLUDE}" ]]; then
+          ARGS+=("--exclude=${EXCLUDE}")
+        fi
+        shopwell-cli extension validate "${ARGS[@]}" .
+    - name: Run formatter
+      if: inputs.action == 'format'
+      shell: bash
+      run: shopwell-cli extension format . --dry-run

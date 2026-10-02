@@ -1,0 +1,42 @@
+name: SaaS Preview Environment
+description: "Create or archive a SaaS Preview Environment"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "download"
+
+inputs:
+  action:
+    description: Which action to run? (create, archive)
+    required: true
+    default: create
+  token:
+    description: Token to use (if empty a token from octo-sts would be used)
+    required: false
+  refFallback:
+    description: Fallback ref in case there's no matching branch.
+    required: false
+    default: "trunk"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get token
+      if: ${{ inputs.token == '' }}
+      uses: shopwell-shop/octo-sts-action@c0ea7b858a7f5719ff14390f67dd770a2defd203
+      id: octo-sts
+      with:
+        scope: shopwell-shop/saas
+        identity: PreviewEnvironment
+    - name: Trigger preview environment
+      uses: shopwell-shop/github-actions/downstream@main
+      env:
+          NEW_LOGIC: 1
+      with:
+        repo: shopwell-shop/saas
+        workflow: "preview-environment.yml"
+        ref: ".auto"
+        refFallback: ${{ inputs.refFallback }}
+        timeout: 60m
+        token: ${{ inputs.token || steps.octo-sts.outputs.token }}
+        env: "ACTION=${{ inputs.action }}\nACTOR=${{ github.actor }}\nISSUE_NUMBER=${{ github.event.pull_request.number }}"

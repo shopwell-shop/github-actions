@@ -1,0 +1,77 @@
+name: Jest
+on:
+  workflow_call:
+    inputs:
+      extensionName:
+        description: "Your extension name"
+        required: true
+        type: string
+      shopwellVersion:
+        description: |
+          With the default `.auto`, the workflow tries to find a shopwell version using the shopwell-version action.
+
+          For example, if the current ref is next-1234, it will try to find the ref next-1234 in shopwell-shop/shopwell. If there's no matching ref, it will use shopwellVersionFallback
+        required: false
+        type: string
+        default: ".auto"
+      shopwellVersionFallback:
+        required: false
+        type: string
+        default: trunk
+      shopwell-repository:
+        description: The shopwell repository to checkout
+        type: string
+        default: shopwell-shop/shopwell
+      composerRootVersion:
+        required: false
+        type: string
+        default: ".auto"
+      uploadCoverage:
+        description: "Upload coverage to codecov"
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      codecovToken:
+        description: "Codecov token"
+        required: false
+
+jobs:
+  run:
+    name: Jest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Extension
+        uses: shopwell-shop/github-actions/setup-extension@main
+        with:
+          shopwellVersion: ${{ inputs.shopwellVersion }}
+          shopwellVersionFallback: ${{ inputs.shopwellVersionFallback }}
+          shopwell-repository: ${{ inputs.shopwell-repository }}
+          extensionName: ${{ github.event.repository.name }}
+          composerRootVersion: ${{ inputs.composerRootVersion }}
+          install: true
+          install-admin: true
+          env: prod
+          allow-insecure-versions: true
+          extraRepositories: |
+            {
+              "${{ github.event.repository.name }}": {
+                "type": "path",
+                "url": "custom/plugins/${{ github.event.repository.name }}",
+                "symlink": true
+              }
+            }
+
+      - name: Jest Unit Tests
+        working-directory: custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration
+        run: npm run unit -- --coverage
+
+      - name: Upload Coverage
+        if: inputs.uploadCoverage == true
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        env:
+          CODECOV_TOKEN: ${{ secrets.codecovToken }}
+        with:
+          root_dir: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+          working-directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}
+          directory: ${{ github.workspace }}/custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration

@@ -1,0 +1,32 @@
+name: Build Extension Zip
+on:
+  workflow_call:
+    inputs:
+      extensionName:
+        description: "Your extension name"
+        required: true
+        type: string
+      path:
+        description: "Path to your bundle"
+        required: false
+        type: string
+        default: "."
+jobs:
+  run:
+    name: Build and Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install shopwell-cli
+        uses: shopwell-shop/shopwell-cli-action@v3
+      - name: Build
+        run: shopwell-cli extension zip "${{ inputs.path }}" --git-commit "${{ github.sha }}" --release
+      - name: Rename
+        run: mv ${{ inputs.extensionName }}-${{ github.sha }}.zip ${{ inputs.extensionName }}.zip
+      - name: Validate
+        run: shopwell-cli extension validate ${{ inputs.extensionName }}.zip --only sw-cli
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ inputs.extensionName }}
+          path: ${{ inputs.extensionName }}.zip

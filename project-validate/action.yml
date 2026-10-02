@@ -1,0 +1,46 @@
+name: "Project Validate"
+description: "Validates a Shopwell project code style and structure"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "check-circle"
+
+inputs:
+  phpVersion:
+    description: "PHP version to use"
+    required: false
+    default: "8.4"
+  path:
+    description: "Path to the project"
+    required: false
+    default: "."
+  skipCheckout:
+    description: "Skip the checkout step"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      if: inputs.skipCheckout != 'true'
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+      with:
+        php-version: ${{ inputs.phpVersion }}
+
+    - name: Install Shopwell CLI
+      uses: shopwell-shop/shopwell-cli-action@v3
+
+    - name: Install dependencies
+      uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
+
+    - name: Validate Project
+      shell: bash
+      run: shopwell-cli project validate ${{ inputs.path }}
+
+    - name: Check Code Style
+      shell: bash
+      run: shopwell-cli project format --dry-run ${{ inputs.path }}

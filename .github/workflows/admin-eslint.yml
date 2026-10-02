@@ -1,0 +1,63 @@
+name: ESLint
+on:
+  workflow_call:
+    inputs:
+        extensionName:
+          description: 'Your extension name'
+          required: true
+          type: string
+        shopwellVersion:
+          description: |
+            With the default `.auto`, the workflow tries to find a shopwell version using the shopwell-version action.
+
+            For example, if the current ref is next-1234, it will try to find the ref next-1234 in shopwell-shop/shopwell. If there's no matching ref, it will use shopwellVersionFallback
+          required: false
+          type: string
+          default: '.auto'
+        shopwellVersionFallback:
+          required: false
+          type: string
+          default: trunk
+        shopwell-repository:
+          description: The shopwell repository to checkout
+          type: string
+          default: shopwell-shop/shopwell
+
+jobs:
+  run:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shopwell-shop/github-actions/shopwell-version@main
+        with:
+          fallback: ${{ inputs.shopwellVersionFallback }}
+          repo: ${{ inputs.shopwell-repository }}
+        id: version
+        if: ${{ inputs.shopwellVersion == '.auto' || inputs.shopwellVersion == '' }}
+      - name: Clone Shopwell
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.shopwell-repository || 'shopwell-shop/shopwell' }}
+          ref: ${{ steps.version.outputs.shopwell-version || inputs.shopwellVersion }}
+      - name: Clone Extension
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: custom/plugins/${{ inputs.extensionName }}
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '20.x'
+
+      - name: Install admin deps
+        shell: bash
+        working-directory: src/Administration/Resources/app/administration
+        run: npm ci --no-audit --no-fund --prefer-offline
+
+      - name: Install Plugin Dependencies
+        working-directory: custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration
+        run: npm install --no-audit --no-fund --prefer-offline
+
+      - name: Run ESLint
+        working-directory: custom/plugins/${{ inputs.extensionName }}/src/Resources/app/administration
+        run: npm run lint

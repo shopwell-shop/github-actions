@@ -1,0 +1,53 @@
+name: "Project Deployer"
+description: "Builds and deploys a Shopwell project using shopwell-cli and deployer"
+author: "Shopwell"
+branding:
+  color: "blue"
+  icon: "upload"
+
+inputs:
+  phpVersion:
+    description: "PHP version to use"
+    required: false
+    default: "8.4"
+  sshPrivateKey:
+    description: "SSH private key for deployment (use secrets.SSH_PRIVATE_KEY)"
+    required: true
+  deployCommand:
+    description: "Deploy command to run"
+    required: false
+    default: "deploy"
+  path:
+    description: "Path to the project"
+    required: false
+    default: "."
+  skipCheckout:
+    description: "Skip the checkout step"
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout
+      if: inputs.skipCheckout != 'true'
+      uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+      with:
+        php-version: ${{ inputs.phpVersion }}
+
+    - name: Install Shopwell CLI
+      uses: shopwell-shop/shopwell-cli-action@v3
+
+    - name: Build
+      uses: shopwell-shop/build-project-action@a7a941def3d8be87ae902207de4c1d43bc7ce7d3
+      with:
+        path: ${{ inputs.path }}
+
+    - name: Deploy
+      uses: deployphp/action@a1b46c204dbde25a32ed0d7bb6751ac3377ca1e9 # v1.0.26
+      with:
+        dep: ${{ inputs.deployCommand }}
+        private-key: ${{ inputs.sshPrivateKey }}

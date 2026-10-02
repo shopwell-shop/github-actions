@@ -1,0 +1,185 @@
+name: Test actions
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+    downstream-wait:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Test downstream wait
+              run: bash downstream/wait.test.bash
+
+    version-bump:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Test version-bump
+              run: bash version-bump/version-bump.test.bash
+
+    setup-extension:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Test setup-extension composer config adjustments
+              run: bash setup-extension/action.test.bash
+
+    shopwell-version-fallback:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - id: version
+              uses: ./shopwell-version
+              with:
+                fallback: ""
+            - name: Check shopwell-version is never empty
+              run: |
+                SHOPWELL_VERSION="${{ steps.version.outputs.shopwell-version }}"
+                echo "shopwell-version: '${SHOPWELL_VERSION}'"
+                if [[ -z "${SHOPWELL_VERSION}" ]]; then
+                    echo 'shopwell-version should not be empty'
+                    exit 1
+                fi
+    shopwell-version:
+        runs-on: ubuntu-latest
+        strategy:
+            matrix:
+                test-case:
+                    - ref: this-branch-does-not-exist
+                      base-ref: "6.7.3.99"
+                      expected-version: "6.7.3.x"
+                    - ref: this-branch-does-not-exist
+                      base-ref: "6.6.99.99"
+                      expected-version: "6.6.x"
+                    - ref: trunk
+                      base-ref: "6.7.99.99"
+                      expected-version: "trunk"
+                    - ref: does-not-exist
+                      head-ref: trunk
+                      base-ref: "6.7.99.99"
+                      expected-version: "trunk"
+                    # for non pr events, base-ref can be empty
+                    - ref: 6.7.2.99
+                      base-ref: " "
+                      expected-version: "6.7.2.x"
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Test shopwell-version
+              id: version
+              uses: ./shopwell-version
+              with:
+                ref: ${{ matrix.test-case.ref }}
+                base-ref: ${{ matrix.test-case.base-ref }}
+                head-ref: ${{ matrix.test-case.head-ref || matrix.test-case.ref }}
+                repo: shopwell-shop/shopwell
+                fallback: 'not-found'
+            - name: Check shopwell-version matches expected version
+              run: |
+                SHOPWELL_VERSION="${{ steps.version.outputs.shopwell-version }}"
+                EXPECTED_VERSION="${{ matrix.test-case.expected-version }}"
+                echo "shopwell-version: '${SHOPWELL_VERSION}'"
+                echo "expected-version: '${EXPECTED_VERSION}'"
+                if [[ "${SHOPWELL_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+                    echo "shopwell-version should be '${EXPECTED_VERSION}' but got '${SHOPWELL_VERSION}'"
+                    exit 1
+                fi
+            - name: Test shopwell-version with refs/heads/
+              id: version-heads
+              uses: ./shopwell-version
+              if: ${{ matrix.test-case.base-ref != ' ' }}
+              with:
+                ref: refs/heads/${{ matrix.test-case.ref }}
+                base-ref: refs/heads/${{ matrix.test-case.base-ref }}
+                head-ref: refs/heads/${{ matrix.test-case.head-ref || matrix.test-case.ref }}
+                repo: shopwell-shop/shopwell
+                fallback: 'not-found'
+            - name: Check shopwell-version matches expected version
+              if: ${{ matrix.test-case.base-ref != ' ' }}
+              run: |
+                SHOPWELL_VERSION="${{ steps.version-heads.outputs.shopwell-version }}"
+                EXPECTED_VERSION="${{ matrix.test-case.expected-version }}"
+                echo "shopwell-version: '${SHOPWELL_VERSION}'"
+                echo "expected-version: '${EXPECTED_VERSION}'"
+                if [[ "${SHOPWELL_VERSION}" != "${EXPECTED_VERSION}" ]]; then
+                    echo "shopwell-version should be '${EXPECTED_VERSION}' but got '${SHOPWELL_VERSION}'"
+                    exit 1
+                fi
+
+    print-versions:
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Get versions
+              id: versions
+              uses: ./versions
+              with:
+                github-token: ${{ github.token }}
+            - name: Print outputs
+              run: |
+                echo "next-minor:     ${{ steps.versions.outputs.next-minor }}"
+                echo "next-patch:     ${{ steps.versions.outputs.next-patch }}"
+                echo "latest:         ${{ steps.versions.outputs.latest-version }}"
+                echo "first:          ${{ steps.versions.outputs.first-version }}"
+                echo "lts-latest:     ${{ steps.versions.outputs.lts-latest-version }}"
+                echo "lts-next-patch: ${{ steps.versions.outputs.lts-next-patch }}"
+            - name: Sanity-check next-minor
+              run: |
+                NEXT_MINOR="${{ steps.versions.outputs.next-minor }}"
+                if [[ ! "$NEXT_MINOR" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "next-minor looks wrong: '${NEXT_MINOR}'"
+                    exit 1
+                fi
+
+    plugin-lifecycle-assert-tables:
+        runs-on: ubuntu-latest
+        services:
+            mysql:
+                image: mysql:8.0
+                env:
+                    MYSQL_ROOT_PASSWORD: root
+                    MYSQL_DATABASE: shopwell
+                ports:
+                    - 3306:3306
+                options: >-
+                    --health-cmd="mysqladmin ping -proot"
+                    --health-interval=10s
+                    --health-timeout=5s
+                    --health-retries=10
+        env:
+            DATABASE_URL: mysql://root:root@127.0.0.1:3306/shopwell
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - name: Setup PHP
+              uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+              with:
+                php-version: "8.3"
+                extensions: pdo_mysql
+            - name: Create a fixture table
+              run: |
+                php -r '$p=parse_url(getenv("DATABASE_URL")); $pdo=new PDO(sprintf("mysql:host=%s;port=%d;dbname=%s",$p["host"],$p["port"],ltrim($p["path"],"/")),$p["user"],$p["pass"]); $pdo->exec("CREATE TABLE existing_table (id INT)");'
+            - name: present + existing table -> passes
+              run: php plugin-lifecycle/assert-tables.php present existing_table
+            - name: absent + existing table -> must fail
+              run: |
+                if php plugin-lifecycle/assert-tables.php absent existing_table; then
+                    echo "expected a non-zero exit but the script passed"; exit 1
+                fi
+            - name: present + missing table -> must fail
+              run: |
+                if php plugin-lifecycle/assert-tables.php present missing_table; then
+                    echo "expected a non-zero exit but the script passed"; exit 1
+                fi
+            - name: absent + missing table -> passes
+              run: php plugin-lifecycle/assert-tables.php absent missing_table
+            - name: no tables -> passes (no-op)
+              run: php plugin-lifecycle/assert-tables.php absent

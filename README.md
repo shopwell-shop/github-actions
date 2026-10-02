@@ -1,0 +1,112 @@
+# Reusable GitHub Actions for Shopwell
+
+A collection of reusable GitHub Actions and Workflows for Shopwell extensions and projects.
+
+## Actions
+
+### Code Quality
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [cs-fixer](cs-fixer/) | PHP-CS-Fixer action for checking and enforcing code style | [README](cs-fixer/README.md) |
+| [phpstan](phpstan/) | Runs PHPStan static analysis for Shopwell extensions | [README](phpstan/README.md) |
+| [eslint](eslint/) | Runs ESLint on administration or storefront files | [README](eslint/README.md) |
+| [extension-verifier](extension-verifier/) | Validates and formats Shopwell extensions using shopwell-cli | [README](extension-verifier/README.md) |
+| [project-validate](project-validate/) | Validates a Shopwell project code style and structure | [README](project-validate/README.md) |
+
+### Testing
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [admin-jest](admin-jest/) | Runs administration Jest tests | [README](admin-jest/README.md) |
+| [phpunit](phpunit/) | Runs PHPUnit tests for Shopwell extensions | [README](phpunit/README.md) |
+| [plugin-lifecycle](plugin-lifecycle/) | Validates a plugin's install/uninstall/reinstall lifecycle and DAL wiring | [README](plugin-lifecycle/README.md) |
+
+### Build & Release
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [ai-release-notes](ai-release-notes/) | Generates AI-powered release notes and creates a draft GitHub release | [README](ai-release-notes/README.md) |
+| [build-zip](build-zip/) | Builds the extension zip and validates it | [README](build-zip/README.md) |
+| [store-release](store-release/) | Builds the extension and uploads it to the Shopwell Store | [README](store-release/README.md) |
+
+### Setup & Configuration
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [setup-extension](setup-extension/) | Checkouts Shopwell and extension, installs dependencies | [README](setup-extension/README.md) |
+| [shopwell-version](shopwell-version/) | Gets the Shopwell version that matches the current branch | [README](shopwell-version/README.md) |
+| [npm-ci-retry](npm-ci-retry/) | Runs npm install commands with retry handling | [README](npm-ci-retry/README.md) |
+| [versions](versions/) | Gets version information for current and LTS major versions | [README](versions/README.md) |
+
+### Workflow Orchestration
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [downstream](downstream/) | Triggers a downstream workflow and waits for it to finish | [README](downstream/README.md) |
+| [upstream-connect](upstream-connect/) | Connects to upstream from downstream run | [README](upstream-connect/README.md) |
+
+### Deployment
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [project-deployer](project-deployer/) | Builds and deploys a Shopwell project using shopwell-cli and deployer | [README](project-deployer/README.md) |
+
+### SaaS
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [saas-preview-environment](saas-preview-environment/) | Creates or archives a SaaS Preview Environment | [README](saas-preview-environment/README.md) |
+| [update-saas-refs](update-saas-refs/) | Triggers an update of SAAS upstream refs for a given branch | [README](update-saas-refs/README.md) |
+
+### Notifications
+
+| Action | Description | Link |
+|--------|-------------|------|
+| [version-bump](version-bump/) | Detects a `composer.json` version increase between two refs | [README](version-bump/README.md) |
+
+## Usage
+
+All actions follow the standard GitHub Actions format:
+
+```yaml
+steps:
+  - uses: shopwell-shop/github-actions/[action-name]@main
+    with:
+      # action-specific inputs
+```
+
+## Extension Dependencies
+
+For actions that support extension dependencies (e.g., `phpstan`, `phpunit`, `setup-extension`), you can specify them using the `dependencies` input:
+
+```yaml
+jobs:
+  phpstan:
+    uses: shopwell-shop/github-actions/phpstan@main
+    with:
+      extensionName: MyExtensionName
+      dependencies: |-
+        [
+          {"name": "SwagPlatformDemoData", "repo": "git@github.com:shopwell/SwagPlatformDemoData.git"}
+        ]
+```
+
+For private dependencies, you can use variables that will be replaced with secrets:
+
+```yaml
+jobs:
+  phpstan:
+    uses: shopwell-shop/github-actions/setup-extension@main
+    with:
+      extensionName: MyExtensionName
+      dependencies: |-
+        [
+          {"name": "MyPrivateExtension", "repo": "https://user:$MY_EXTENSION_TOKEN@gitlab.domain.com/org/my-extension.git"}
+        ]
+      env: MY_EXTENSION_TOKEN=${{ secrets.MY_EXTENSION_TOKEN }}
+```
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

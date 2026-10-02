@@ -52,10 +52,10 @@ jobs:
                 test-case:
                     - ref: this-branch-does-not-exist
                       base-ref: "6.7.3.99"
-                      expected-version: "6.7.3.x"
+                      expected-version: "trunk"
                     - ref: this-branch-does-not-exist
                       base-ref: "6.6.99.99"
-                      expected-version: "6.6.x"
+                      expected-version: "trunk"
                     - ref: trunk
                       base-ref: "6.7.99.99"
                       expected-version: "trunk"
@@ -66,7 +66,7 @@ jobs:
                     # for non pr events, base-ref can be empty
                     - ref: 6.7.2.99
                       base-ref: " "
-                      expected-version: "6.7.2.x"
+                      expected-version: "trunk"
         steps:
             - name: Checkout code
               uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

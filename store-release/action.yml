@@ -48,7 +48,7 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: shopwell-shop/github-actions/build-zip@main
+    - uses: shopwell-shop/github-actions/build-zip@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
       with:
         extensionName: ${{ inputs.extensionName }}
         skipCheckout: ${{ inputs.skipCheckout }}

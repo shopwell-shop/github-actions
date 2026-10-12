@@ -14,7 +14,7 @@
 #       paths: ['composer.json']          # apps: ['manifest.xml']
 #   jobs:
 #     notify:
-#       uses: shopwell-shop/github-actions/.github/workflows/version-bump-notify.yml@main
+#       uses: shopwell-shop/github-actions/.github/workflows/version-bump-notify.yml@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
 #       secrets:
 #         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}   # secret stays in the extension repo
 name: Version Bump Notify
@@ -54,7 +54,7 @@ jobs:
           echo "new=${{ github.event.after || github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
       - name: Detect version bump
         id: detect
-        uses: shopwell-shop/github-actions/version-bump@main
+        uses: shopwell-shop/github-actions/version-bump@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
         with:
           old-ref: ${{ steps.refs.outputs.old }}
           new-ref: ${{ steps.refs.outputs.new }}

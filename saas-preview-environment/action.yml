@@ -29,7 +29,7 @@ runs:
         scope: shopwell-shop/saas
         identity: PreviewEnvironment
     - name: Trigger preview environment
-      uses: shopwell-shop/github-actions/downstream@main
+      uses: shopwell-shop/github-actions/downstream@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
       env:
           NEW_LOGIC: 1
       with:

@@ -55,7 +55,7 @@ jobs:
       SHOPWELL_ACCESS_KEY_ID: ${{ secrets.SHOPWELL_ACCESS_KEY_ID }}
       SHOPWELL_SECRET_ACCESS_KEY: ${{ secrets.SHOPWELL_SECRET_ACCESS_KEY }}
     steps:
-      - uses: shopwell-shop/github-actions/shopwell-version@main
+      - uses: shopwell-shop/github-actions/shopwell-version@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
         with:
           fallback: ${{ inputs.shopwellVersionFallback }}
         id: version

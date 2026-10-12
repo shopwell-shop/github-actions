@@ -44,7 +44,7 @@ jobs:
     name: Static Analyse
     runs-on: ${{ inputs.runner }}
     steps:
-      - uses: shopwell-shop/github-actions/shopwell-version@main
+      - uses: shopwell-shop/github-actions/shopwell-version@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
         with:
           fallback: ${{ inputs.shopwellVersionFallback }}
           repo: ${{ inputs.shopwell-repository }}

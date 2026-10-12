@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Setup Extension
-        uses: shopwell-shop/github-actions/setup-extension@main
+        uses: shopwell-shop/github-actions/setup-extension@65054d0ba7d1e4c53af3d7ef816cbc1aebc4b8ad
         with:
           shopwellVersion: ${{ inputs.shopwellVersion }}
           shopwellVersionFallback: ${{ inputs.shopwellVersionFallback }}
